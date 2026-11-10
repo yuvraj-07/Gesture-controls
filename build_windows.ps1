@@ -1,3 +1,5 @@
+#FOR WINDOWS INSTALLAATION GUIDE
+
 $ErrorActionPreference = "Stop"
 
 python -m pip install -r requirements.txt

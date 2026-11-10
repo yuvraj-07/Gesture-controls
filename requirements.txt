@@ -1,3 +1,5 @@
+#you need to install these if you are working in vs code or read the PRD and SRS of this.
+
 mediapipe==0.10.21
 opencv-contrib-python==4.11.0.86
 numpy<2

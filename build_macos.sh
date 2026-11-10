@@ -1,3 +1,4 @@
+#FOR MAC INSTALLATION GUIDE
 #!/bin/sh
 set -eu
 
