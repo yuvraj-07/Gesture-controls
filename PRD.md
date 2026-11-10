@@ -106,6 +106,11 @@ The current product resolves these problems by fixing hand roles, limiting the g
 | **PRD-F08** | A windowed build avoids opening a terminal window. | **Should** | PyInstaller build uses `--windowed` and is launched from the generated output folder. |
 | **PRD-F09** | User can configure output limits and brightness target/ramp. | **Must** | Saved settings load on the next run. |
 | **PRD-F10** | No mouse features are present. | **Must** | No mouse library or mouse input/output paths are included. |
+| **PRD-F11** | User can save named gesture profiles and assign supported actions to each left-hand gesture. | **Must** | Profile selection and mappings persist in the user configuration. |
+| **PRD-F12** | A profile may assign a custom keyboard shortcut to a left-hand gesture. | **Should** | On Windows, configured key combinations are sent once per gesture cycle. |
+| **PRD-F13** | Settings shall allow a user to test a configured shortcut with a short focus countdown. | **Should** | The user can focus the target application before the shortcut is sent. |
+| **PRD-F14** | The tray shall list saved profiles for quick selection, independently of Volume/Brightness/Idle mode. | **Should** | Selecting a tray profile activates its gesture mappings and persists the selection. |
+| **PRD-F15** | Windows users shall be able to change modes and quit with global Ctrl+Alt+V/B/I/Q shortcuts while another app is focused. | **Must** | Shortcuts work while the preview is hidden and are unregistered when the app exits. |
 
 ---
 
@@ -148,7 +153,7 @@ The current product resolves these problems by fixing hand roles, limiting the g
 
 ## 11. Release Status and Recommended Next Work
 
-Current state is an implementation baseline with source files, configuration, tray integration, and build scripts. It is not a verified release. 
+Current state includes saved gesture profiles with configurable mute/media/shortcut actions and build scripts. Custom keyboard shortcuts currently target Windows; physical-device validation remains necessary. It is not a verified release.
 
 **Recommended next steps:**
 1. Run an acceptance pass on the user’s Windows 3.12 x64 machine.

@@ -137,6 +137,12 @@ The mode model is exclusive: volume and brightness are never driven simultaneous
 | **SRS-F23** | The tray menu shall support volume, brightness, idle, show/hide camera window, settings, and quit. Tray callbacks shall communicate by request flags rather than touching camera-loop UI directly. | **Should** |
 | **SRS-F24** | Tray Quit shall terminate the camera loop and close camera, detector, OSD, and tray resources. | **Must** |
 | **SRS-F25** | The application shall log actionable warnings/errors for unavailable audio, brightness, media, camera, tray, or OSD services and continue where possible. | **Should** |
+| **SRS-F26** | The application shall persist named profiles containing one action per left fist, thumb-pinky pinch, and thumb-middle pinch. | **Must** |
+| **SRS-F27** | Profile actions shall include none, mute, play/pause, next, previous, or a user-entered keyboard shortcut. | **Should** |
+| **SRS-F28** | On Windows, shortcut syntax shall accept one to four keys joined by `+`, supporting Ctrl, Alt, Shift, Win, letters, digits, F1–F12, and common navigation keys. Invalid syntax shall not send key events. | **Must** |
+| **SRS-F29** | Settings shall offer a shortcut test for a selected gesture mapping and send it after a three-second countdown, allowing the user to focus the target application. | **Should** |
+| **SRS-F30** | The tray menu shall expose each saved profile; selecting one shall enqueue the request for the camera-loop owner to apply and persist. Profile selection shall not change the active output mode. | **Should** |
+| **SRS-F31** | On Windows, register Ctrl+Alt+V/B/I/Q as global volume/brightness/idle/quit shortcuts, poll them from the camera loop, and unregister them during shutdown. Registration conflicts shall be reported without terminating the application. | **Must** |
 
 ---
 
@@ -178,12 +184,15 @@ The left-hand state retains a fired latch through short detection losses (up to 
   },
   "brightness_display": null,
   "brightness_step_percent": 4,
-  "right_pinch_range": null
+  "right_pinch_range": null,
+  "active_profile": "Default",
+  "profiles": {"Default": {"fist": "mute", "pinky_pinch": "play_pause", "middle_pinch": "next"}}
 }
 ```
 
 - **Defaults:** Volume min/max 5/90; brightness min/max 10/100; brightness step 4%; `right_pinch_range` null until calibration.
 - **Migration & Paths:** The loader can migrate the right-hand entry from the previous `pinch_ranges` object.
+- **Profiles:** `active_profile` selects a named entry in `profiles`; each profile maps `fist`, `pinky_pinch`, and `middle_pinch` to an action. Shortcuts use the form `shortcut:ctrl+shift+m` and are supported on Windows only.
   - *Source execution:* Stores JSON next to `gesture_control.py`.
   - *Frozen builds:* Stores under the per-user application config directory (`%APPDATA%\GestureControls` on Windows; `~/Library/Application Support/GestureControls` on macOS; XDG config path on Linux) and copies the bundled initial config on first run.
 
@@ -277,7 +286,7 @@ The left-hand state retains a fired latch through short detection losses (up to 
 ## 14. Known Limitations and Future Work
 
 1. **Media Playback State:** The app does not query Windows Global System Media Transport Controls; OSD `MUSIC PLAYING / PAUSED` is a local toggle that assumes playback started active. External player controls can desynchronize it.
-2. **Platform Parity:** Media key support is implemented for Windows only; Mac/Linux volume branches do not provide matching mute/media behavior.
+2. **Platform Parity:** Media keys and custom keyboard shortcuts are implemented for Windows only; Mac/Linux volume branches do not provide matching mute/media behavior.
 3. **Environmental Validation:** Face rejection and hand geometry have not been validated across lighting, camera models, occlusions, or multiple users.
 4. **Anchor Sensitivity:** The fixed palm-scale lock may require hand removal/re-entry after substantial hand movement; thresholds may need per-device tuning.
 5. **Packaging Smoke-Testing:** PyInstaller scripts and app bundles are not built or smoke-tested; signing, notarization, installer, auto-start, and tray icon polish are future work.

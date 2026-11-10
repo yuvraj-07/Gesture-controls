@@ -226,6 +226,28 @@ class SystemControl:
             self.warn("media_key", f"[WARN] Could not send media key: {error}")
             return False
 
+    def keyboard_shortcut(self, shortcut):
+        if self.os_name != "Windows":
+            self.warn("shortcut_os", "[WARN] Custom shortcuts currently require Windows.")
+            return False
+        names = {"ctrl": 0x11, "alt": 0x12, "shift": 0x10, "win": 0x5B,
+                 "enter": 0x0D, "space": 0x20, "tab": 0x09, "esc": 0x1B,
+                 "delete": 0x2E, "home": 0x24, "end": 0x23, "up": 0x26,
+                 "down": 0x28, "left": 0x25, "right": 0x27}
+        parts = [part.strip().lower() for part in shortcut.split("+")]
+        if not 1 <= len(parts) <= 4 or any(not part for part in parts): return False
+        keys = []
+        for part in parts:
+            if part in names: code = names[part]
+            elif len(part) == 1 and part.isalnum(): code = ord(part.upper())
+            elif part.startswith("f") and part[1:].isdigit() and 1 <= int(part[1:]) <= 12: code = 0x70 + int(part[1:]) - 1
+            else: return False
+            keys.append(code)
+        user32 = ctypes.windll.user32
+        for key in keys: user32.keybd_event(key, 0, 0, 0)
+        for key in reversed(keys): user32.keybd_event(key, 0, 0x0002, 0)
+        return True
+
     def displays(self):
         try:
             import screen_brightness_control as sbc
@@ -372,22 +394,37 @@ class TrayController:
         draw = ImageDraw.Draw(image)
         draw.ellipse((9, 9, 55, 55), outline=(98, 168, 255, 255), width=4)
         draw.ellipse((25, 25, 39, 39), fill=(244, 184, 96, 255))
+        self.pystray = pystray
+        self.image = image
         self.icon = pystray.Icon(
-            "GestureControls",
-            image,
-            "Gesture Volume and Brightness",
-            menu=pystray.Menu(
-                pystray.MenuItem("Volume mode", lambda icon, item: app.request_mode("volume")),
-                pystray.MenuItem("Brightness mode", lambda icon, item: app.request_mode("brightness")),
-                pystray.MenuItem("Idle", lambda icon, item: app.request_mode("idle")),
-                pystray.Menu.SEPARATOR,
-                pystray.MenuItem("Show camera window", lambda icon, item: app.request_camera(True)),
-                pystray.MenuItem("Hide camera window", lambda icon, item: app.request_camera(False)),
-                pystray.MenuItem("Settings", lambda icon, item: app.request_settings()),
-                pystray.Menu.SEPARATOR,
-                pystray.MenuItem("Quit", lambda icon, item: app.request_quit()),
-            ),
+            "GestureControls", image, "Gesture Volume and Brightness",
+            menu=self.build_menu(),
         )
+
+    def build_menu(self):
+        pystray = self.pystray
+        def profile_action(profile):
+            return lambda icon, item: self.app.request_profile(profile)
+        profiles = pystray.Menu(*[
+            pystray.MenuItem(name, profile_action(name))
+            for name in sorted(self.app.settings["profiles"])
+        ])
+        return pystray.Menu(
+                pystray.MenuItem("Volume mode", lambda icon, item: self.app.request_mode("volume")),
+                pystray.MenuItem("Brightness mode", lambda icon, item: self.app.request_mode("brightness")),
+                pystray.MenuItem("Idle", lambda icon, item: self.app.request_mode("idle")),
+                pystray.MenuItem("Profiles", profiles),
+                pystray.Menu.SEPARATOR,
+                pystray.MenuItem("Show camera window", lambda icon, item: self.app.request_camera(True)),
+                pystray.MenuItem("Hide camera window", lambda icon, item: self.app.request_camera(False)),
+                pystray.MenuItem("Settings", lambda icon, item: self.app.request_settings()),
+                pystray.Menu.SEPARATOR,
+                pystray.MenuItem("Quit", lambda icon, item: self.app.request_quit()),
+        )
+
+    def refresh_menu(self):
+        self.icon.menu = self.build_menu()
+        self.icon.update_menu()
 
     def start(self):
         self.icon.run_detached()
@@ -408,6 +445,8 @@ class GestureController:
         "brightness_display": None,
         "brightness_step_percent": 4,
         "right_pinch_range": None,
+        "active_profile": "Default",
+        "profiles": {"Default": {"fist": "mute", "pinky_pinch": "play_pause", "middle_pinch": "next"}},
     }
     CALIBRATION_SECONDS = 3.5
     PINCH_PINKY_ON = 0.62
@@ -423,6 +462,7 @@ class GestureController:
         self.config_path = self.config_file_path()
         self.settings = json.loads(json.dumps(self.DEFAULTS))
         self.load_settings()
+        self.action_map = self.settings["profiles"][self.settings["active_profile"]].copy()
         self.mode = "idle"
         self.calibrated = self.valid_range(self.settings.get("right_pinch_range"))
         self.calibration_started = None
@@ -454,6 +494,8 @@ class GestureController:
         self.current_value = None
         self.tray = None
         self.tray_mode_request = None
+        self.tray_profile_request = None
+        self.tray_menu_refresh_requested = False
         self.settings_requested = False
         self.quit_requested = False
         self.camera_visibility_request = None
@@ -479,6 +521,10 @@ class GestureController:
         if mode in ("volume", "brightness", "idle"):
             self.tray_mode_request = mode
 
+    def request_profile(self, name):
+        if name in self.settings["profiles"]:
+            self.tray_profile_request = name
+
     def request_camera(self, visible):
         self.camera_visibility_request = bool(visible)
 
@@ -487,6 +533,51 @@ class GestureController:
 
     def request_quit(self):
         self.quit_requested = True
+
+    def register_global_hotkeys(self):
+        if platform.system() != "Windows":
+            return
+        from ctypes import wintypes
+        self._hotkey_user32 = ctypes.windll.user32
+        self._hotkey_user32.RegisterHotKey.argtypes = (
+            wintypes.HWND, ctypes.c_int, wintypes.UINT, wintypes.UINT)
+        self._hotkey_user32.RegisterHotKey.restype = wintypes.BOOL
+        self._hotkey_user32.PeekMessageW.argtypes = (
+            ctypes.POINTER(wintypes.MSG), wintypes.HWND,
+            wintypes.UINT, wintypes.UINT, wintypes.UINT)
+        self._hotkey_user32.PeekMessageW.restype = wintypes.BOOL
+        self._hotkey_user32.UnregisterHotKey.argtypes = (wintypes.HWND, ctypes.c_int)
+        self._hotkey_user32.UnregisterHotKey.restype = wintypes.BOOL
+        self._hotkey_ids = {1: "volume", 2: "brightness", 3: "idle", 4: "quit"}
+        self._registered_hotkey_ids = set()
+        modifiers = 0x0002 | 0x0001  # MOD_CONTROL | MOD_ALT
+        for hotkey_id, key in enumerate("VBIQ", 1):
+            if self._hotkey_user32.RegisterHotKey(None, hotkey_id, modifiers, ord(key)):
+                self._registered_hotkey_ids.add(hotkey_id)
+                print(f"[INFO] Global Ctrl+Alt+{key} registered.")
+            else:
+                error = ctypes.get_last_error()
+                print(f"[WARN] Global Ctrl+Alt+{key} registration failed (Windows error {error}; shortcut may be in use).")
+
+    def poll_global_hotkeys(self):
+        if not hasattr(self, "_hotkey_user32"):
+            return
+        from ctypes import wintypes
+        message = wintypes.MSG()
+        while self._hotkey_user32.PeekMessageW(ctypes.byref(message), None, 0x0312, 0x0312, 0x0001):
+            request = self._hotkey_ids.get(int(message.wParam))
+            if request in ("volume", "brightness", "idle"):
+                print(f"[INFO] Global shortcut activated: Ctrl+Alt+{request[0].upper()}.")
+                self.tray_mode_request = request
+            elif request == "quit":
+                print("[INFO] Global shortcut activated: Ctrl+Alt+Q.")
+                self.quit_requested = True
+
+    def unregister_global_hotkeys(self):
+        if hasattr(self, "_hotkey_user32"):
+            for hotkey_id in self._registered_hotkey_ids:
+                self._hotkey_user32.UnregisterHotKey(None, hotkey_id)
+            del self._hotkey_user32
 
     def set_mode(self, mode):
         self.mode = mode
@@ -536,6 +627,15 @@ class GestureController:
                     "min_ratio": float(pinch["min_ratio"]),
                     "max_ratio": float(pinch["max_ratio"]),
                 }
+            for name, mapping in data.get("profiles", {}).items():
+                if isinstance(name, str) and isinstance(mapping, dict):
+                    self.settings["profiles"][name] = {
+                        key: mapping.get(key, "none")
+                        for key in ("fist", "pinky_pinch", "middle_pinch")
+                    }
+            active = data.get("active_profile", "Default")
+            if active in self.settings["profiles"]:
+                self.settings["active_profile"] = active
         except (OSError, ValueError, TypeError, json.JSONDecodeError) as error:
             print(f"[WARN] Could not read settings: {error}")
 
@@ -544,6 +644,11 @@ class GestureController:
             self.config_path.write_text(json.dumps(self.settings, indent=2) + "\n", encoding="utf-8")
         except OSError as error:
             print(f"[WARN] Could not save settings: {error}")
+
+    def select_profile(self, name):
+        if name in self.settings["profiles"]:
+            self.settings["active_profile"] = name
+            self.action_map = self.settings["profiles"][name].copy()
 
     def clear_right_calibration(self):
         self.settings["right_pinch_range"] = None
@@ -809,18 +914,34 @@ class GestureController:
         self.left_fired = True
         self.left_action_at = now
         if gesture == "fist":
+            action = self.action_map.get("fist", "mute")
+            if action == "none": return ""
+            if action != "mute": return self.perform_mapped_action(action)
             self.muted = self.system.toggle_mute()
             if self.muted is None:
                 return "MUTE N/A"
             return "MUTE ON" if self.muted else "MUTE OFF"
         if gesture == "pinky_pinch":
-            if not self.system.media_key("play_pause"):
-                return "MEDIA N/A"
+            return self.perform_mapped_action(self.action_map.get("pinky_pinch", "play_pause"))
+        if gesture == "middle_pinch":
+            return self.perform_mapped_action(self.action_map.get("middle_pinch", "next"))
+        return ""
+
+    def perform_mapped_action(self, action):
+        if action == "none": return ""
+        if action.startswith("shortcut:"):
+            shortcut = action.partition(":")[2]
+            return f"SHORTCUT {shortcut.upper()}" if self.system.keyboard_shortcut(shortcut) else "SHORTCUT N/A"
+        if action == "mute":
+            self.muted = self.system.toggle_mute()
+            return "MUTE N/A" if self.muted is None else ("MUTE ON" if self.muted else "MUTE OFF")
+        if action not in ("play_pause", "next", "previous"):
+            return ""
+        if not self.system.media_key(action): return "MEDIA N/A"
+        if action == "play_pause":
             self.media_is_playing = not self.media_is_playing
             return "MUSIC PLAYING" if self.media_is_playing else "MUSIC PAUSED"
-        if gesture == "middle_pinch":
-            return "NEXT TRACK" if self.system.media_key("next") else "MEDIA N/A"
-        return ""
+        return "NEXT TRACK" if action == "next" else "PREVIOUS TRACK"
 
     def show_settings(self):
         import tkinter as tk
@@ -860,6 +981,50 @@ class GestureController:
         step_var = tk.StringVar(value=str(self.settings["brightness_step_percent"]))
         ttk.Spinbox(monitor_box, from_=1, to=10, textvariable=step_var, width=6).grid(row=1, column=1, sticky="w", padx=6, pady=(8, 0))
 
+        profile_box = ttk.LabelFrame(panel, text="Gesture profile", padding=8)
+        profile_box.pack(fill="x", pady=4)
+        profile_var = tk.StringVar(value=self.settings["active_profile"])
+        ttk.Label(profile_box, text="Profile:").grid(row=0, column=0, sticky="w")
+        profile_combo = ttk.Combobox(profile_box, textvariable=profile_var,
+            values=sorted(self.settings["profiles"]), width=20)
+        profile_combo.grid(row=0, column=1, sticky="w", padx=5)
+        actions = ("none", "mute", "play_pause", "next", "previous", "shortcut:ctrl+shift+m")
+        action_vars = {}
+        gesture_names = {"fist": "Fist", "pinky_pinch": "Thumb-pinky pinch", "middle_pinch": "Thumb-middle pinch"}
+        for row, gesture in enumerate(("fist", "pinky_pinch", "middle_pinch"), 1):
+            ttk.Label(profile_box, text=gesture_names[gesture]).grid(row=row, column=0, sticky="w", pady=2)
+            var = tk.StringVar(value=self.action_map.get(gesture, "none"))
+            ttk.Combobox(profile_box, textvariable=var, values=actions, state="normal", width=24).grid(row=row, column=1, sticky="w", padx=5)
+            action_vars[gesture] = var
+
+        def load_profile(_event=None):
+            name = profile_var.get()
+            mapping = self.settings["profiles"].get(name)
+            if mapping:
+                for gesture, var in action_vars.items(): var.set(mapping.get(gesture, "none"))
+        profile_combo.bind("<<ComboboxSelected>>", load_profile)
+        ttk.Label(profile_box, text="For shortcuts, enter shortcut:ctrl+shift+m (Windows)", foreground="#555").grid(row=4, column=0, columnspan=2, sticky="w", pady=(5, 0))
+        test_gesture_var = tk.StringVar(value="fist")
+        ttk.Label(profile_box, text="Test gesture:").grid(row=5, column=0, sticky="w", pady=(5, 0))
+        ttk.Combobox(profile_box, textvariable=test_gesture_var,
+            values=("fist", "pinky_pinch", "middle_pinch"), state="readonly", width=22).grid(row=5, column=1, sticky="w", padx=5, pady=(5, 0))
+        test_status = tk.StringVar(value="")
+        ttk.Label(profile_box, textvariable=test_status).grid(row=7, column=0, columnspan=2, sticky="w")
+
+        def test_shortcut():
+            gesture_key = test_gesture_var.get()
+            action = action_vars[gesture_key].get().strip()
+            if not action.startswith("shortcut:") or not action.partition(":")[2]:
+                test_status.set("Choose a shortcut action first.")
+                return
+            shortcut = action.partition(":")[2]
+            test_status.set("Shortcut will send in 3 seconds; focus the target app now.")
+            def send_test():
+                ok = self.system.keyboard_shortcut(shortcut)
+                test_status.set("Shortcut sent." if ok else "Shortcut invalid or unavailable.")
+            root.after(3000, send_test)
+        ttk.Button(profile_box, text="Test shortcut", command=test_shortcut).grid(row=6, column=0, columnspan=2, sticky="w", pady=(4, 0))
+
         calibration_text = "Saved" if self.calibrated else "Needed on first active mode"
         calibration_var = tk.StringVar(value=f"Right-hand pinch calibration: {calibration_text}")
         ttk.Label(panel, textvariable=calibration_var).pack(anchor="w", pady=(8, 2))
@@ -890,6 +1055,13 @@ class GestureController:
             self.settings["output_limits"] = new_limits
             self.settings["brightness_step_percent"] = int(np.clip(step, 1, 10))
             self.settings["brightness_display"] = options[monitor_var.get()]
+            profile = profile_var.get().strip()[:32] or "Default"
+            mapping = {gesture: var.get() for gesture, var in action_vars.items()}
+            self.settings["profiles"][profile] = mapping
+            self.settings["active_profile"] = profile
+            self.select_profile(profile)
+            profile_combo.configure(values=sorted(self.settings["profiles"]))
+            self.tray_menu_refresh_requested = True
             self.save_settings()
             return True
 
@@ -922,6 +1094,9 @@ class GestureController:
         camera.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
         print("Keys: v=volume | b=brightness | i=idle | q=quit")
+        self.register_global_hotkeys()
+        if platform.system() == "Windows":
+            print("Global shortcuts: Ctrl+Alt+V=volume | Ctrl+Alt+B=brightness | Ctrl+Alt+I=idle | Ctrl+Alt+Q=quit")
         try:
             overlay = CornerStatusOverlay()
         except Exception as error:
@@ -935,6 +1110,7 @@ class GestureController:
         camera_visible = True
         try:
             while True:
+                self.poll_global_hotkeys()
                 ok, frame = camera.read()
                 if not ok:
                     print("[ERROR] Camera frame could not be read.")
@@ -1016,6 +1192,13 @@ class GestureController:
                     self.show_settings()
                     self.current_value = None
                     last_status_poll = 0.0
+                if self.tray_profile_request is not None:
+                    self.select_profile(self.tray_profile_request)
+                    self.tray_profile_request = None
+                    self.save_settings()
+                if self.tray_menu_refresh_requested and self.tray:
+                    self.tray.refresh_menu()
+                    self.tray_menu_refresh_requested = False
                 if self.tray_mode_request is not None:
                     requested_mode = self.tray_mode_request
                     self.tray_mode_request = None
@@ -1038,6 +1221,7 @@ class GestureController:
                     except cv2.error:
                         pass
         finally:
+            self.unregister_global_hotkeys()
             if overlay:
                 overlay.close()
             camera.release()

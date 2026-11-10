@@ -14,5 +14,18 @@
   "right_pinch_range": {
     "min_ratio": 0.22093067146863507,
     "max_ratio": 1.6974250787888594
+  },
+  "active_profile": "Default",
+  "profiles": {
+    "Default": {
+      "fist": "mute",
+      "pinky_pinch": "play_pause",
+      "middle_pinch": "next"
+    },
+    "my profile": {
+      "fist": "shortcut:ctrl+f",
+      "pinky_pinch": "shortcut:ctrl+r",
+      "middle_pinch": "play_pause"
+    }
   }
 }
