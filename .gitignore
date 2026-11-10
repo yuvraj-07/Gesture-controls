@@ -1,0 +1,76 @@
+# ==============================================================================
+# Gesture Volume & Brightness Controller - Git Ignore Rules
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 1. Virtual Environments & Local Packages
+# ------------------------------------------------------------------------------
+.venv/
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# ------------------------------------------------------------------------------
+# 2. Build & Distribution Artifacts (PyInstaller, etc.)
+# ------------------------------------------------------------------------------
+build/
+dist/
+*.manifest
+*.spec.bak
+
+# ------------------------------------------------------------------------------
+# 3. Python Bytecode & Runtime Caches
+# ------------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.coverage
+htmlcov/
+
+# ------------------------------------------------------------------------------
+# 4. Editor & IDE Settings
+# ------------------------------------------------------------------------------
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ------------------------------------------------------------------------------
+# 5. Operating System Generated Files
+# ------------------------------------------------------------------------------
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# ==============================================================================
+# IMPORTANT PROJECT FILES (Explicitly Preserved / Tracked)
+# ==============================================================================
+# The following core files constitute the main codebase, configurations,
+# specifications, and packaging pipelines:
+#
+# - gesture_control.py   : Main application, camera loop, detector, OSD, tray
+# - gesture_config.json  : Configuration schema and calibrated pinch parameters
+# - requirements.txt     : Project dependencies
+# - PRD.md               : Product Requirements Document
+# - SRS.md               : Software Requirements Specification
+# - build_windows.ps1    : Windows PyInstaller build script
+# - build_macos.sh       : macOS PyInstaller build script
+# - GestureControls.spec : PyInstaller packaging spec
+# - .gitignore           : Git repository ignore rules
+# ==============================================================================
+!gesture_control.py
+!gesture_config.json
+!requirements.txt
+!PRD.md
+!SRS.md
+!build_windows.ps1
+!build_macos.sh
+!GestureControls.spec
+!.gitignore
